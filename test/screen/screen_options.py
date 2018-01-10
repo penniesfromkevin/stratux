@@ -9,6 +9,7 @@ from __future__ import division
 from __future__ import print_function
 from __future__ import unicode_literals
 
+import argparse
 import json
 import time
 import urllib2
@@ -40,9 +41,8 @@ BAR_WIDTH = 6
 UAT_INDENT = 50  # Prefer indents to be calculated...
 ES_INDENT = 44
 
-DISPLAY_TYPE = 'ssd1306'
-#DISPLAY_TYPE = 'sh1106'
-
+# Defaults/options from here
+DISPLAY_TYPES = ('ssd1306', 'sh1106')
 I2C_PORT = 1
 I2C_ADDRESS = 0x3c
 CHECK_PERIOD = 1  # seconds; how long to wait between status checks
@@ -58,23 +58,39 @@ class StratuxScreen(object):
     """Stratux screen class
     """
 
-    def __init__(self):
+    def __init__(self, display_type=DISPLAY_TYPES[0], i2c_port=I2C_PORT,
+                 i2c_address=I2C_ADDRESS, check_period=CHECK_PERIOD,
+                 pidfile_path=PIDFILE_PATH, pidfile_timeout=PIDFILE_TIMEOUT,
+                 stdin_path=STDIN_PATH, stdout_path=STDOUT_PATH,
+                 stderr_path=STDERR_PATH):
         """Set up Screen object.
+
+        Arguments:
+            display_type: One of DISPLAY_TYPES.
+            i2c_port: Integer I2C port number.
+            i2c_address: Hexadecimal I2C address.
+            check_period: Time between status checks, in seconds.
+            pidfile_path: Path to file containing PID.
+            pidfile_timeout: Time to wait for PID file, in seconds.
+            stdin_path: Path to stdin file.
+            stdout_path: Path to stdout file.
+            stderr_path: Path to stderr file.
         """
-        serial = i2c(port=I2C_PORT, address=I2C_ADDRESS)
-        if DISPLAY_TYPE == 'sh1106':
+        serial = i2c(port=i2c_port, address=i2c_address)
+        if display_type == 'sh1106':
             self.oled = sh1106(serial)
         else:
             self.oled = ssd1306(serial)
         self.bar_length = self.oled.width - ((PADDING + TEXT_MARGIN) * 2)
         self.font = ImageFont.truetype(FONT_PATH, FONT_SIZE)
+        self.check_period = check_period
 
         # Required by daemon runner
-        self.pidfile_path = PIDFILE_PATH
-        self.pidfile_timeout = PIDFILE_TIMEOUT
-        self.stdin_path = STDIN_PATH
-        self.stdout_path = STDOUT_PATH
-        self.stderr_path = STDERR_PATH
+        self.pidfile_path = pidfile_path
+        self.pidfile_timeout = pidfile_timeout
+        self.stdin_path = stdin_path
+        self.stdout_path = stdout_path
+        self.stderr_path = stderr_path
 
     def run(self):
         """Called by daemon runner.
@@ -82,7 +98,7 @@ class StratuxScreen(object):
         self.splash()
         check_num = 1
         while check_num:
-            time.sleep(CHECK_PERIOD)
+            time.sleep(self.check_period)
             status_data = get_status_data()
             mode = check_num <= 5  # switch mode every 5 iterations
             self.display_status_data(status_data, mode)
@@ -196,13 +212,62 @@ def get_json_response(url):
     return response_json
 
 
+def parse_args():
+    """Parse user arguments and return as parser object.
+
+    Returns:
+        Parser object with arguments as attributes.
+    """
+    parser = argparse.ArgumentParser(
+        description='Stratux Screen.',
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument(
+        '-d', '--display_type', choices=DISPLAY_TYPES,
+        default=DISPLAY_TYPES[0], help='Display type used.')
+    parser.add_argument(
+        '-a', '--i2c_address', type=hex, default=I2C_ADDRESS,
+        help='I2C address, hexadecimal.')
+    parser.add_argument(
+        '-p', '--i2c_port', type=int, default=I2C_PORT,
+        help='I2C port, integer.')
+
+    parser.add_argument(
+        '-f', '--pidfile_path', default=PIDFILE_PATH,
+        help='Path to PID file.')
+    parser.add_argument(
+        '-t', '--pidfile_timeout', type=int, default=PIDFILE_TIMEOUT,
+        help='PID file timeout, in seconds.')
+
+    parser.add_argument(
+        '-i', '--stdin_path', default=STDIN_PATH,
+        help='Path to stdin file.')
+    parser.add_argument(
+        '-o', '--stdout_path', default=STDOUT_PATH,
+        help='Path to stdout file.')
+    parser.add_argument(
+        '-e', '--stderr_path', default=STDERR_PATH,
+        help='Path to stderr file.')
+
+    parser.add_argument(
+        '-c', '--check_period', type=int, default=CHECK_PERIOD,
+        help='How long to wait between data checks, in seconds.')
+    args = parser.parse_args()
+    return args
+
+
 def main():
     """Daemon caller.
     """
-    stratux_screen = StratuxScreen()
+    stratux_screen = StratuxScreen(
+        display_type=ARGS.display_type, i2c_port=ARGS.i2c_port,
+        i2c_address=ARGS.i2c_address, check_period=ARGS.check_period,
+        pidfile_path=ARGS.pidfile_path, pidfile_timeout=ARGS.pidfile_timeout,
+        stdin_path=ARGS.stdin_path, stdout_path=ARGS.stdout_path,
+        stderr_path=ARGS.stderr_path)
     daemon_runner = runner.DaemonRunner(stratux_screen)
     daemon_runner.do_action()
 
 
 if __name__ == '__main__':
+    ARGS = parse_args()
     main()
